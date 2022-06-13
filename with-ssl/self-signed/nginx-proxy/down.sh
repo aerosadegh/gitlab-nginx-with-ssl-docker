@@ -1,0 +1,1 @@
+docker-compose --env-file .env.prod -f with-ssl/docker-compose.yaml down -v

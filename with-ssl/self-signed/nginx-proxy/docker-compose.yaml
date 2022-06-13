@@ -1,0 +1,109 @@
+version: '3.8'
+
+secrets:
+  gitlab_root_password:
+    file: ./root_password.txt
+
+volumes:
+  # gitlab
+  gitlab-conf:
+  gitlab-logs:
+  gitlab-data:
+  # nginx
+  certs:
+  acme:
+  vhost.d:
+  html:
+
+networks:
+  proxy-tier:
+
+
+services:
+  web:
+    image: gitlab/gitlab-ee:14.9.3-ee.0
+    restart: always
+    hostname: ${HOSTNAME}
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url '${EXTERNAL_URL}'
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        letsencrypt['enable'] = false
+
+        # Add any other gitlab.rb configuration here, each on its own line
+        gitlab_rails['time_zone'] = 'Asia/Tehran'
+        gitlab_rails['gitlab_shell_ssh_port'] = 8023
+        gitlab_rails['initial_root_password'] = File.read('/run/secrets/gitlab_root_password').gsub("\n", "")
+        logging['svlogd_size'] = 200*1024*1024
+        logging['svlogd_num'] = 30
+    ports:
+      - '127.0.0.1:3180:80'
+      # - '127.0.0.1:443:443'
+      - '8023:22'
+
+    networks:
+      - proxy-tier
+
+    volumes:
+      - gitlab-conf:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    secrets:
+      - gitlab_root_password
+
+
+
+  letsencrypt-companion:
+    image: nginxproxy/acme-companion
+    restart: always
+    volumes:
+      - certs:/etc/nginx/certs
+      - acme:/etc/acme.sh
+      - vhost.d:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy-tier
+    depends_on:
+      - proxy
+
+
+  proxy:
+    build: ./proxy
+    restart: always
+    ports:
+      - 80:80
+      - 443:443
+    labels:
+      com.github.jrcs.letsencrypt_nginx_proxy_companion.nginx_proxy: "true"
+    volumes:
+      - certs:/etc/nginx/certs:ro
+      - vhost.d:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+    networks:
+      - proxy-tier
+
+  # self signed
+  omgwtfssl:
+    image: paulczar/omgwtfssl
+    restart: "no"
+    volumes:
+      - certs:/certs
+    environment:
+      - SSL_SUBJECT=${URL_PATH}
+      - CA_SUBJECT=foo@${URL_PATH}
+      - SSL_KEY=/certs/${URL_PATH}.key
+      - SSL_CSR=/certs/${URL_PATH}.csr
+      - SSL_CERT=/certs/${URL_PATH}.crt
+    networks:
+      - proxy-tier
