@@ -14,14 +14,14 @@ first of all change `.env.prod` file
 compose up project with:
 
 ```bash
-cd with-ssl
+cd ./with-ssl/self-signed/nginx-proxy/
 sh up.sh
 ```
 
 compose down project with:
 
 ```bash
-cd with-ssl
+cd ./with-ssl/self-signed/nginx-proxy/
 sh down.sh
 ```
 
